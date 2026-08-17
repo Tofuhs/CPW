@@ -3,26 +3,38 @@ import numpy as np
 from scipy.special import ellipk
 
 # ==========================================
-# 輔助函數：工程單位自動轉換 (自動切換 p, n, u, m 等)
+# 輔助函數：工程單位自動轉換
 # ==========================================
-def format_eng(value, unit):
+def format_eng(value, unit_type):
     if value == 0:
-        return f"0.0000 {unit}"
-    abs_val = abs(value)
-    if abs_val >= 1:
-        return f"{value:.4f} {unit}"
-    elif abs_val >= 1e-3:
-        return f"{value*1e3:.4f} m{unit}"
-    elif abs_val >= 1e-6:
-        return f"{value*1e6:.4f} μ{unit}"
-    elif abs_val >= 1e-9:
-        return f"{value*1e9:.4f} n{unit}"
-    elif abs_val >= 1e-12:
-        return f"{value*1e12:.4f} p{unit}"
-    elif abs_val >= 1e-15:
-        return f"{value*1e15:.4f} f{unit}"
-    else:
-        return f"{value*1e18:.4f} a{unit}"
+        return f"0.0000 {unit_type}"
+    
+    abs_v = abs(value)
+    
+    # 處理電容 (F)
+    if "F" in unit_type: 
+        if abs_v >= 1e-6: return f"{value*1e6:.4f} μ{unit_type}"
+        elif abs_v >= 1e-9: return f"{value*1e9:.4f} n{unit_type}"
+        elif abs_v >= 1e-12: return f"{value*1e12:.4f} p{unit_type}"
+        elif abs_v >= 1e-15: return f"{value*1e15:.4f} f{unit_type}"
+        else: return f"{value*1e18:.4f} a{unit_type}"
+        
+    # 處理電感 (H)
+    elif "H" in unit_type:
+        if abs_v >= 1e-3: return f"{value*1e3:.4f} m{unit_type}"
+        elif abs_v >= 1e-6: return f"{value*1e6:.4f} μ{unit_type}"
+        elif abs_v >= 1e-9: return f"{value*1e9:.4f} n{unit_type}"
+        elif abs_v >= 1e-12: return f"{value*1e12:.4f} p{unit_type}"
+        else: return f"{value*1e15:.4f} f{unit_type}"
+        
+    # 處理頻率 (Hz)
+    elif "Hz" in unit_type:
+        if abs_v >= 1e9: return f"{value*1e-9:.4f} GHz"
+        elif abs_v >= 1e6: return f"{value*1e-6:.4f} MHz"
+        elif abs_v >= 1e3: return f"{value*1e-3:.4f} kHz"
+        else: return f"{value:.4f} Hz"
+        
+    return f"{value:.4f} {unit_type}"
 
 # ==========================================
 # 物理常數與材質資料庫
@@ -46,7 +58,7 @@ SUBSTRATES = {
 st.set_page_config(page_title="CPW Calculator", layout="wide")
 
 st.title("CPW Resonator Calculator")
-st.markdown("計算共平面波導的傳輸線參數 ($C_l, L_l$) 以及對應的 **DC 結果** 與 **AC 等效結果 (n=1)**")
+st.markdown("精確計算共平面波導參數，並依據 **λ/2** 或 **λ/4** 類型自動推導 DC 與 AC (n=1) 等效集總參數。")
 
 # ==========================================
 # 1. 參數輸入區 
@@ -61,7 +73,7 @@ with col1:
         er = st.number_input("εr (Relative Permittivity)", min_value=1.0, value=11.8, step=0.1)
     else:
         er = st.number_input("εr (Relative Permittivity)", value=SUBSTRATES[material], disabled=True)
-    # 依照您的要求，預設基板厚度改為 500 um
+    # 預設厚度 500um
     h_um = st.number_input("Substrate Thickness (h) [μm]", min_value=1.0, value=500.0, step=10.0)
 
 with col2:
@@ -71,8 +83,8 @@ with col2:
     t_nm = st.number_input("Metal Thickness (t) [nm]", min_value=1.0, value=100.0, step=10.0)
 
 with col3:
-    st.subheader("Transmission Line (傳輸線)")
-    # 預設為簡報中的 lambda/2 長度 (19.935 mm / 2 = 9.9675 mm) 方便您驗證
+    st.subheader("Resonator (共振腔設定)")
+    res_type = st.selectbox("Resonator Type", ["λ/2 Resonator (Open/Open or Short/Short)", "λ/4 Resonator (Open/Short)"])
     l_mm = st.number_input("CPW Length (l) [mm]", min_value=0.01, value=9.9675, step=0.1, format="%.4f")
 
 # ==========================================
@@ -80,7 +92,6 @@ with col3:
 # ==========================================
 st.header("2. CPW Cross-Section (動態示意圖)")
 
-# 動態調整 SVG 繪圖比例
 w_disp = max(w_um, 2) * 10
 s_disp = max(s_um, 2) * 10
 center_x = 400
@@ -90,23 +101,18 @@ gnd_right_x = signal_x + w_disp + s_disp
 
 svg_code = f"""
 <svg viewBox="0 0 800 250" width="100%" xmlns="http://www.w3.org/2000/svg">
-  <!-- Substrate -->
   <rect x="50" y="140" width="700" height="90" fill="#e0e0e0" stroke="#333" stroke-width="2"></rect>
   <text x="400" y="195" font-size="18" text-anchor="middle" font-family="sans-serif" fill="#333">Dielectric Substrate (εr={er}), h = {h_um} μm</text>
 
-  <!-- Ground Left -->
   <rect x="50" y="110" width="{gnd_left_x + 200 - 50}" height="30" fill="#ffd700" stroke="#b8860b" stroke-width="2"></rect>
   <text x="100" y="132" font-size="16" text-anchor="middle" font-family="sans-serif" font-weight="bold">GND</text>
 
-  <!-- Signal Trace -->
   <rect x="{signal_x}" y="110" width="{w_disp}" height="30" fill="#ffd700" stroke="#b8860b" stroke-width="2"></rect>
   <text x="{center_x}" y="132" font-size="16" text-anchor="middle" font-family="sans-serif" font-weight="bold">w={w_um}</text>
 
-  <!-- Ground Right -->
   <rect x="{gnd_right_x}" y="110" width="{750 - gnd_right_x}" height="30" fill="#ffd700" stroke="#b8860b" stroke-width="2"></rect>
   <text x="700" y="132" font-size="16" text-anchor="middle" font-family="sans-serif" font-weight="bold">GND</text>
 
-  <!-- Dimensions -->
   <line x1="{signal_x - s_disp}" y1="100" x2="{signal_x}" y2="100" stroke="red" stroke-width="2"></line>
   <text x="{signal_x - s_disp/2}" y="90" font-size="14" fill="red" text-anchor="middle" font-family="sans-serif">s={s_um}</text>
   <line x1="{signal_x + w_disp}" y1="100" x2="{gnd_right_x}" y2="100" stroke="red" stroke-width="2"></line>
@@ -121,7 +127,11 @@ st.write(svg_code, unsafe_allow_html=True)
 # 3. 顯示計算公式
 # ==========================================
 st.header("3. Formulas (n=1)")
-with st.expander("點擊展開查看公式 (依照簡報定義)", expanded=True):
+
+is_lambda_2 = "λ/2" in res_type
+l_coeff_str = r"\frac{2}{\pi^2}" if is_lambda_2 else r"\frac{8}{\pi^2}"
+
+with st.expander(f"點擊展開查看 {res_type.split()[0]} 公式", expanded=True):
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         st.markdown("**【 單位長度參數 (Basic) 】**")
@@ -134,9 +144,9 @@ with st.expander("點擊展開查看公式 (依照簡報定義)", expanded=True)
         
     with col_f2:
         st.markdown("**【 AC 結果 (等效集總參數 Lumped Element) 】**")
-        st.latex(r"L_n = \frac{2}{n^2\pi^2} L_l l \xrightarrow{n=1} \frac{2}{\pi^2} L_{DC}")
-        st.latex(r"C = \frac{C_l l}{2} = \frac{C_{DC}}{2}")
-        st.latex(r"f_{res} = \frac{1}{2\pi \sqrt{L_n C}}")
+        st.latex(rf"L_n = {l_coeff_str} L_{{DC}}")
+        st.latex(r"C_n = \frac{C_{DC}}{2}")
+        st.latex(r"f_{res} = \frac{1}{2\pi \sqrt{L_n C_n}}")
 
 # ==========================================
 # 4. 執行計算與顯示結果
@@ -157,30 +167,33 @@ if st.button("Calculate", type="primary"):
     K_k0 = ellipk(k0**2)
     K_k0_prime = ellipk(k0_prime**2)
     
-    # 有效介電常數 (使用最純粹的共平面近似法 Eeff = (Er+1)/2，以對齊簡報結果)
+    # 有效介電常數 (Eeff = (Er+1)/2)
     eeff = (er + 1.0) / 2.0
     
-    # 單位長度結果 (Basic / TL)
+    # 單位長度結果
     C_l = 4 * EPSILON_0 * eeff * (K_k0 / K_k0_prime)
     L_l = (MU_0 / 4) * (K_k0_prime / K_k0)
     
-    # 阻抗與波速
     Z0 = np.sqrt(L_l / C_l)
     v_phase = 1 / np.sqrt(L_l * C_l)
     v_ratio = v_phase / C_SPEED
     
-    # DC 結果 (純粹乘上總長度 l)
+    # DC 結果 (總長度)
     C_dc = C_l * l
     L_dc = L_l * l
 
-    # AC 等效集總參數 (Lumped Element, n=1)
+    # AC 等效集總參數
     C_eq = C_dc / 2.0
-    L_eq = (2.0 / (np.pi**2)) * L_dc
     
+    if is_lambda_2:
+        L_eq = (2.0 / (np.pi**2)) * L_dc
+    else:
+        L_eq = (8.0 / (np.pi**2)) * L_dc
+        
     # 共振頻率
     f_res = 1 / (2 * np.pi * np.sqrt(L_eq * C_eq))
     
-    # === 畫面佈局 (使用自訂函數 format_eng 自動調整單位) ===
+    # 畫面佈局
     res_unit, res_dc, res_ac = st.columns(3)
     
     with res_unit:
@@ -197,7 +210,11 @@ if st.button("Calculate", type="primary"):
         st.metric(label="L = L_l * l", value=format_eng(L_dc, "H"))
         
     with res_ac:
-        st.success("### AC (Lumped, n=1)")
+        st.success(f"### AC (Lumped, {res_type.split()[0]})")
         st.metric(label="C_n = C_DC / 2", value=format_eng(C_eq, "F"))
-        st.metric(label="L_n = (2/π²) * L_DC", value=format_eng(L_eq, "H"))
+        
+        # 顯示對應的 L_n 公式標籤
+        l_label = "L_n = (2/π²) * L_DC" if is_lambda_2 else "L_n = (8/π²) * L_DC"
+        st.metric(label=l_label, value=format_eng(L_eq, "H"))
+        
         st.metric(label="Resonance Freq (f_res)", value=format_eng(f_res, "Hz"))
