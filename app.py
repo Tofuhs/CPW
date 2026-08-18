@@ -8,32 +8,32 @@ from scipy.special import ellipk
 def format_eng(value, unit_type):
     if value == 0:
         return f"0.0000 {unit_type}"
-    
+
     abs_v = abs(value)
-    
+
     # 處理電容 (F)
-    if "F" in unit_type: 
+    if unit_type == "F" or unit_type == "F/m": 
         if abs_v >= 1e-6: return f"{value*1e6:.4f} μ{unit_type}"
         elif abs_v >= 1e-9: return f"{value*1e9:.4f} n{unit_type}"
         elif abs_v >= 1e-12: return f"{value*1e12:.4f} p{unit_type}"
         elif abs_v >= 1e-15: return f"{value*1e15:.4f} f{unit_type}"
         else: return f"{value*1e18:.4f} a{unit_type}"
-        
+
     # 處理電感 (H)
-    elif "H" in unit_type:
+    elif unit_type == "H" or unit_type == "H/m":
         if abs_v >= 1e-3: return f"{value*1e3:.4f} m{unit_type}"
         elif abs_v >= 1e-6: return f"{value*1e6:.4f} μ{unit_type}"
         elif abs_v >= 1e-9: return f"{value*1e9:.4f} n{unit_type}"
         elif abs_v >= 1e-12: return f"{value*1e12:.4f} p{unit_type}"
         else: return f"{value*1e15:.4f} f{unit_type}"
-        
+
     # 處理頻率 (Hz)
-    elif "Hz" in unit_type:
+    elif unit_type == "Hz":
         if abs_v >= 1e9: return f"{value*1e-9:.4f} GHz"
         elif abs_v >= 1e6: return f"{value*1e-6:.4f} MHz"
         elif abs_v >= 1e3: return f"{value*1e-3:.4f} kHz"
         else: return f"{value:.4f} Hz"
-        
+
     return f"{value:.4f} {unit_type}"
 
 # ==========================================
@@ -55,10 +55,10 @@ SUBSTRATES = {
     "Custom": 0.0
 }
 
-st.set_page_config(page_title="CPW Calculator", layout="wide")
+st.set_page_config(page_title="CPW Resonator Calculator", layout="wide")
 
 st.title("CPW Resonator Calculator")
-st.markdown("精確計算共平面波導參數，並依據 **λ/2** 或 **λ/4** 類型自動推導 DC 與 AC (n=1) 等效集總參數。")
+st.markdown("精確計算共平面波導參數，並依據 λ/2 或 λ/4 類型自動推導 DC 與 AC (n=1) 等效集總參數。已整合**有限基板厚度 (h)**與**金屬厚度 (t)**的邊緣效應修正模型。")
 
 # ==========================================
 # 1. 參數輸入區 
@@ -73,19 +73,23 @@ with col1:
         er = st.number_input("εr (Relative Permittivity)", min_value=1.0, value=11.8, step=0.1)
     else:
         er = st.number_input("εr (Relative Permittivity)", value=SUBSTRATES[material], disabled=True)
-    # 預設厚度 500um
-    h_um = st.number_input("Substrate Thickness (h) [μm]", min_value=1.0, value=500.0, step=10.0)
+    
+    h_um = st.number_input("Substrate Thickness (h) [μm]", min_value=1.0, value=700.0, step=10.0)
 
 with col2:
     st.subheader("Cross-Section (截面幾何)")
     w_um = st.number_input("Signal Width (w) [μm]", min_value=0.1, value=10.0, step=1.0)
     s_um = st.number_input("Gap (s) [μm]", min_value=0.1, value=6.0, step=1.0)
-    t_nm = st.number_input("Metal Thickness (t) [nm]", min_value=1.0, value=100.0, step=10.0)
+    t_nm = st.number_input("Metal Thickness (t) [nm]", min_value=0.0, value=100.0, step=10.0)
 
 with col3:
     st.subheader("Resonator (共振腔設定)")
     res_type = st.selectbox("Resonator Type", ["λ/2 Resonator (Open/Open or Short/Short)", "λ/4 Resonator (Open/Short)"])
     l_mm = st.number_input("CPW Length (l) [mm]", min_value=0.01, value=9.9675, step=0.1, format="%.4f")
+    
+    st.markdown("---")
+    enable_correction = st.checkbox("啟用有限厚度修正 (H & t)", value=True, 
+                                    help="啟用後將套用共形映射計算有限基板厚度的 ε_eff，並考慮金屬邊緣厚度造成的電容增加。")
 
 # ==========================================
 # 2. 動態視覺化 CPW 結構 (SVG)
@@ -131,22 +135,24 @@ st.header("3. Formulas (n=1)")
 is_lambda_2 = "λ/2" in res_type
 l_coeff_str = r"\frac{2}{\pi^2}" if is_lambda_2 else r"\frac{8}{\pi^2}"
 
-with st.expander(f"點擊展開查看 {res_type.split()[0]} 公式", expanded=True):
+with st.expander(f"點擊展開查看 {res_type.split()[0]} 理論公式", expanded=True):
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        st.markdown("**【 單位長度參數 (Basic) 】**")
+        st.markdown("【 單位長度參數 (Basic) 】")
         st.latex(r"C_l = 4 \varepsilon_0 \varepsilon_{eff} \frac{K(k_0)}{K(k'_0)}")
         st.latex(r"L_l = \frac{\mu_0}{4} \frac{K(k'_0)}{K(k_0)}")
-        
-        st.markdown("**【 DC 結果 】**")
-        st.latex(r"L = \color{red}{L_l l}")
-        st.latex(r"C = \color{red}{C_l l}")
-        
+
+        st.markdown("【 DC 結果 (實體物理總量) 】")
+        st.latex(r"L_{DC} = \color{red}{L_l l}")
+        st.latex(r"C_{DC} = \color{red}{C_l l}")
+
     with col_f2:
-        st.markdown("**【 AC 結果 (等效集總參數 Lumped Element) 】**")
-        st.latex(rf"L_n = {l_coeff_str} L_{{DC}}")
-        st.latex(r"C_n = \frac{C_{DC}}{2}")
-        st.latex(r"f_{res} = \frac{1}{2\pi \sqrt{L_n C_n}}")
+        st.markdown(f"【 AC 結果 (等效並聯 RLC 集總參數) 】")
+        st.latex(rf"L_{{AC, n=1}} = {l_coeff_str} L_{{DC}}")
+        st.latex(r"C_{AC, n=1} = \frac{C_{DC}}{2}")
+        st.latex(r"f_{res} = \frac{1}{2\pi \sqrt{L_{AC} C_{AC}}}")
+        if not is_lambda_2:
+            st.info("💡 **註解**：λ/4 的邊界條件導致 Z_in 在 βl=π/2 附近展開後，等效 L_AC 為同長度 λ/2 公式的 4 倍。")
 
 # ==========================================
 # 4. 執行計算與顯示結果
@@ -158,26 +164,49 @@ if st.button("Calculate", type="primary"):
     w = w_um * 1e-6
     s = s_um * 1e-6
     h = h_um * 1e-6
+    t = t_nm * 1e-9
     l = l_mm * 1e-3
-    
-    # 計算橢圓積分比例
-    k0 = w / (w + 2 * s)
+
+    # 初始化有效幾何參數
+    w_eff = w
+    s_eff = s
+
+    # 1. 考慮金屬厚度修正 (Wadell's formula)
+    if enable_correction and t > 0:
+        delta_w = (1.25 * t / np.pi) * (1 + np.log(4 * np.pi * w / t))
+        # 防止因過度修正導致間隙變為負值
+        if s - delta_w > 0:
+            w_eff = w + delta_w
+            s_eff = s - delta_w
+
+    # 計算基本橢圓積分比例
+    k0 = w_eff / (w_eff + 2 * s_eff)
     k0_prime = np.sqrt(1 - k0**2)
-    
     K_k0 = ellipk(k0**2)
     K_k0_prime = ellipk(k0_prime**2)
-    
-    # 有效介電常數 (Eeff = (Er+1)/2)
-    eeff = (er + 1.0) / 2.0
-    
+
+    # 2. 考慮基板有限厚度修正
+    if enable_correction:
+        # 透過共形映射計算 k1
+        k1 = np.sinh(np.pi * w_eff / (4 * h)) / np.sinh(np.pi * (w_eff + 2 * s_eff) / (4 * h))
+        k1_prime = np.sqrt(1 - k1**2)
+        K_k1 = ellipk(k1**2)
+        K_k1_prime = ellipk(k1_prime**2)
+        
+        q = 0.5 * (K_k1 / K_k1_prime) * (K_k0_prime / K_k0)
+        eeff = 1 + q * (er - 1)
+    else:
+        # 理想無限大基板厚度
+        eeff = (er + 1.0) / 2.0
+
     # 單位長度結果
     C_l = 4 * EPSILON_0 * eeff * (K_k0 / K_k0_prime)
     L_l = (MU_0 / 4) * (K_k0_prime / K_k0)
-    
+
     Z0 = np.sqrt(L_l / C_l)
     v_phase = 1 / np.sqrt(L_l * C_l)
     v_ratio = v_phase / C_SPEED
-    
+
     # DC 結果 (總長度)
     C_dc = C_l * l
     L_dc = L_l * l
@@ -189,32 +218,32 @@ if st.button("Calculate", type="primary"):
         L_eq = (2.0 / (np.pi**2)) * L_dc
     else:
         L_eq = (8.0 / (np.pi**2)) * L_dc
-        
+
     # 共振頻率
     f_res = 1 / (2 * np.pi * np.sqrt(L_eq * C_eq))
-    
+
     # 畫面佈局
     res_unit, res_dc, res_ac = st.columns(3)
-    
+
     with res_unit:
         st.info("### Basic (單位長度)")
         st.metric(label="ε_eff", value=f"{eeff:.4f}")
         st.metric(label="C_l", value=format_eng(C_l, "F/m"))
         st.metric(label="L_l", value=format_eng(L_l, "H/m"))
         st.metric(label="Z0", value=f"{Z0:.2f} Ω")
-        st.metric(label="v (波速)", value=f"{v_ratio:.4f} c")
-        
+        st.metric(label="v (相速度)", value=f"{v_ratio:.4f} c")
+
     with res_dc:
-        st.warning("### DC (總參數)")
-        st.metric(label="C = C_l * l", value=format_eng(C_dc, "F"))
-        st.metric(label="L = L_l * l", value=format_eng(L_dc, "H"))
-        
+        st.warning("### DC (總長度物理量)")
+        st.metric(label="C_DC = C_l * l", value=format_eng(C_dc, "F"))
+        st.metric(label="L_DC = L_l * l", value=format_eng(L_dc, "H"))
+
     with res_ac:
         st.success(f"### AC (Lumped, {res_type.split()[0]})")
-        st.metric(label="C_n = C_DC / 2", value=format_eng(C_eq, "F"))
-        
+        st.metric(label="C_AC = C_DC / 2", value=format_eng(C_eq, "F"))
+
         # 顯示對應的 L_n 公式標籤
-        l_label = "L_n = (2/π²) * L_DC" if is_lambda_2 else "L_n = (8/π²) * L_DC"
+        l_label = "L_AC = (2/π²) * L_DC" if is_lambda_2 else "L_AC = (8/π²) * L_DC"
         st.metric(label=l_label, value=format_eng(L_eq, "H"))
-        
+
         st.metric(label="Resonance Freq (f_res)", value=format_eng(f_res, "Hz"))
